@@ -1,0 +1,17 @@
+{
+    "units": "metric",
+    "wifi_ssid": "Hera koka hasz LSD",
+    "wifi_password": "kiaceed73",
+    "ntp_host": "pool.ntp.org",
+    "measurement_interval": 30000,
+    "mqtt": {
+        "server": "192.168.0.143",
+        "port": 1884,
+        "user": "",
+        "password": "",
+        "ssl": false,
+        "department": "test",
+        "room": "ps418ph",
+        "id": "ps418ph"
+    }
+}
