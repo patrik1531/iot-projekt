@@ -56,5 +56,12 @@
     server: {
       port: 3000,
       open: true,
+      proxy: {
+        '/api': {
+          target: 'http://100.99.94.39:5163',
+          changeOrigin: true,
+          secure: false,
+        },
+      },
     },
   });

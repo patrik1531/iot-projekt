@@ -1,10 +1,10 @@
-import { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Button } from "./ui/button";
 import { Calendar } from "./ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
-import { CalendarIcon } from "lucide-react";
+import { CalendarIcon, Loader2 } from "lucide-react";
 import {
   LineChart,
   Line,
@@ -21,8 +21,53 @@ import {
   ReferenceLine,
 } from "recharts";
 
-// Mock data generator for different time ranges
-function generateMockData(range: string, metric: string) {
+// API response type
+interface SensorApiResponse {
+  avg: number;
+  min: number;
+  max: number;
+  data: {
+    label: string;
+    avgValue: number;
+  }[];
+}
+
+// Chart data type
+interface ChartData {
+  name: string;
+  value: number;
+}
+
+// API endpoints for all sensors
+const sensorEndpoints: Record<string, Record<string, string>> = {
+  temperature: {
+    days: "/api/sensors/temperature/last-24h",
+    weeks: "/api/sensors/temperature/last-week",
+    months: "/api/sensors/temperature/last-month",
+    yearly: "/api/sensors/temperature/last-year",
+  },
+  airQuality: {
+    days: "/api/sensors/air-quality-percent/last-24h",
+    weeks: "/api/sensors/air-quality-percent/last-week",
+    months: "/api/sensors/air-quality-percent/last-month",
+    yearly: "/api/sensors/air-quality-percent/last-year",
+  },
+  peoplePresent: {
+    days: "/api/sensors/motion/last-24h",
+    weeks: "/api/sensors/motion/last-week",
+    months: "/api/sensors/motion/last-month",
+    yearly: "/api/sensors/motion/last-year",
+  },
+  windowOpen: {
+    days: "/api/sensors/window/last-24h",
+    weeks: "/api/sensors/window/last-week",
+    months: "/api/sensors/window/last-month",
+    yearly: "/api/sensors/window/last-year",
+  },
+};
+
+// Fallback mock data generator (used when API fails)
+function generateMockData(range: string, metric: string): ChartData[] {
   const dataPoints = {
     days: 24,
     weeks: 7,
@@ -31,7 +76,7 @@ function generateMockData(range: string, metric: string) {
   };
 
   const points = dataPoints[range as keyof typeof dataPoints] || 24;
-  const data = [];
+  const data: ChartData[] = [];
 
   for (let i = 0; i < points; i++) {
     let value;
@@ -53,7 +98,6 @@ function generateMockData(range: string, metric: string) {
           ? `${i}:00`
           : `Day ${i + 1}`,
       value: parseFloat(value.toFixed(2)),
-      timestamp: new Date(Date.now() - (points - i) * 3600000).toISOString(),
     });
   }
 
@@ -79,8 +123,64 @@ export function Statistics() {
   const [selectedMetric, setSelectedMetric] = useState("temperature");
   const [timeRange, setTimeRange] = useState("days");
   const [customDate, setCustomDate] = useState<Date | undefined>(undefined);
+  const [apiData, setApiData] = useState<SensorApiResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const data = generateMockData(timeRange, selectedMetric);
+  // Fetch sensor data from API
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const endpoints = sensorEndpoints[selectedMetric];
+        if (!endpoints || !endpoints[timeRange]) {
+          throw new Error("No endpoint configured");
+        }
+        const endpoint = endpoints[timeRange];
+        const response = await fetch(endpoint);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        // Check content type to ensure it's JSON
+        const contentType = response.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+          const text = await response.text();
+          console.error("Non-JSON response:", text.substring(0, 200));
+          throw new Error("Server returned non-JSON response");
+        }
+        
+        const data: SensorApiResponse = await response.json();
+        setApiData(data);
+      } catch (err) {
+        console.error("Fetch error:", err);
+        setError(err instanceof Error ? err.message : "An error occurred");
+        setApiData(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, [selectedMetric, timeRange]);
+
+  // Transform API data or use mock data as fallback
+  const data: ChartData[] = apiData
+    ? apiData.data.map((item) => ({
+        name: item.label,
+        value: item.avgValue,
+      }))
+    : generateMockData(timeRange, selectedMetric);
+
+  // Get statistics (from API if available, calculated otherwise)
+  const stats = {
+    avg: apiData
+      ? apiData.avg
+      : data.reduce((acc, d) => acc + d.value, 0) / data.length,
+    max: apiData ? apiData.max : Math.max(...data.map((d) => d.value)),
+    min: apiData ? apiData.min : Math.min(...data.map((d) => d.value)),
+  };
 
   const metricConfig = {
     temperature: {
@@ -177,6 +277,15 @@ export function Statistics() {
               <CardTitle>{config.title}</CardTitle>
             </CardHeader>
             <CardContent>
+              {loading ? (
+                <div className="flex items-center justify-center h-[400px]">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              ) : error ? (
+                <div className="flex items-center justify-center h-[400px] text-destructive">
+                  {error}
+                </div>
+              ) : (
               <ResponsiveContainer width="100%" height={400}>
                 {selectedMetric === "peoplePresent" ||
                 selectedMetric === "windowOpen" ? (
@@ -270,6 +379,7 @@ export function Statistics() {
                   </AreaChart>
                 )}
               </ResponsiveContainer>
+              )}
             </CardContent>
           </Card>
 
@@ -280,9 +390,7 @@ export function Statistics() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {(
-                    data.reduce((acc, d) => acc + d.value, 0) / data.length
-                  ).toFixed(2)}
+                  {loading ? "—" : stats.avg.toFixed(2)}
                   {config.unit}
                 </div>
               </CardContent>
@@ -293,7 +401,7 @@ export function Statistics() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {Math.max(...data.map((d) => d.value)).toFixed(2)}
+                  {loading ? "—" : stats.max.toFixed(2)}
                   {config.unit}
                 </div>
               </CardContent>
@@ -304,7 +412,7 @@ export function Statistics() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {Math.min(...data.map((d) => d.value)).toFixed(2)}
+                  {loading ? "—" : stats.min.toFixed(2)}
                   {config.unit}
                 </div>
               </CardContent>

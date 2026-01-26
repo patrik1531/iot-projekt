@@ -12,33 +12,20 @@ class PublishData(AbstractState):
     def exec(self):
         from states.sleep import Sleep
         from states.error import Error
-        from helpers import publish_sensor_data, feed_watchdog
-        from env import STUDENT_ID
+        from helpers import publish_data, feed_watchdog
 
         try:
             mqtt = self.device.settings.mqtt
-            device_id = mqtt.id  # ps418ph
 
-            print(f"Publikujem do samostatných topicov:")
+            # Publikuj dáta do gw/thsensor/ps418ph/data
+            publish_data(
+                self.device.mqtt_client,
+                mqtt,
+                self.device.measurements
+            )
 
-            # Každý senzor do vlastného topicu
-            for m in self.device.measurements:
-                name = m.get("name", "unknown")
-                value = m.get("value")
-                units = m.get("units", "")
-                dt = m.get("dt", "")
-
-                publish_sensor_data(
-                    self.device.mqtt_client,
-                    device_id,
-                    name,
-                    value,
-                    units,
-                    dt
-                )
-                feed_watchdog()
-
-            print("Všetky dáta odoslané")
+            feed_watchdog()
+            print("Dáta úspešne odoslané")
 
         except Exception as e:
             print(f"Chyba publikovania: {e}")

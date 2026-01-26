@@ -8,18 +8,16 @@ class MqttSettings(Dataclass):
     user: str = ""
     password: str = ""
     ssl: bool = False
-    department: str = ""
-    room: str = ""
-    id: str = ""
+    device_type: str = "thsensor"
+    device_id: str = ""
 
 
 class Settings(Dataclass):
-    units: str = TempUnit.STANDARD
+    units: str = TempUnit.METRIC
     wifi_ssid: str = ""
     wifi_password: str = ""
     ntp_host: str = "pool.ntp.org"
-    measurement_interval: int = 30000  # ← PRIDANÉ
-
+    measurement_interval: int = 30000
     mqtt: MqttSettings = None
 
     def __init__(self, **kwargs):

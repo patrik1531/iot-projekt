@@ -6,9 +6,10 @@ import time
 
 from constants import SETTINGS_FILE, TempUnit
 
+# === FREKVENCIA ===
+CPU_FREQ_LOW = 70_000_000  # 70 MHz pre meranie
+CPU_FREQ_WIFI = 125_000_000  # 125 MHz pre WiFi
 
-CPU_FREQ_LOW = 70_000_000      # 70 MHz pre meranie
-CPU_FREQ_WIFI = 125_000_000    # 125 MHz pre WiFi
 
 def set_low_freq():
     """Nastav nízku frekvenciu pre meranie"""
@@ -24,6 +25,7 @@ def set_wifi_freq():
     print(f"CPU freq: {machine.freq() // 1_000_000} MHz (wifi)")
 
 
+# === WAKE PIN ===
 def setup_wake_pin(pin_num, handler=None):
     """Nastav pin pre prebudenie zo spánku"""
     from machine import Pin
@@ -39,6 +41,7 @@ def setup_wake_pin(pin_num, handler=None):
     return pin
 
 
+# === SETTINGS ===
 def get_settings():
     from models.settings import Settings
     with open(SETTINGS_FILE, 'r') as file:
@@ -60,11 +63,12 @@ def create_default_settings():
         "wifi_ssid": "",
         "wifi_password": "",
         "ntp_host": "pool.ntp.org",
+        "measurement_interval": 30000,
         "mqtt": {
             "server": MQTT_SERVER,
             "port": MQTT_PORT,
-            "user": MQTT_USER,
-            "password": MQTT_PASSWORD,
+            "user": MQTT_USER if MQTT_USER else "",
+            "password": MQTT_PASSWORD if MQTT_PASSWORD else "",
             "ssl": MQTT_SSL,
             "department": MQTT_DEPARTMENT,
             "room": MQTT_ROOM,
@@ -73,6 +77,7 @@ def create_default_settings():
     }
     with open(SETTINGS_FILE, 'w') as file:
         json.dump(default, file)
+    print(f"Vytvorené nové settings.json")
     return default
 
 
@@ -86,6 +91,7 @@ def convert_temp(value: float, units: str) -> float:
     raise ValueError(f'Unit "{units}" is invalid.')
 
 
+# === WIFI ===
 def do_connect(ssid, password):
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
@@ -103,6 +109,7 @@ def do_connect(ssid, password):
                 print(f"\nPripojené! IP: {wlan.ifconfig()[0]}")
                 return wlan
             print(".", end="")
+            feed_watchdog()
             time.sleep(1)
         print(f"\nPokus {attempt + 1}/3 zlyhal")
 
@@ -118,6 +125,7 @@ def disconnect_wifi():
     print("WiFi odpojené")
 
 
+# === NTP & RTC ===
 def sync_ntp(host="pool.ntp.org"):
     import ntptime
     try:
@@ -148,9 +156,11 @@ def get_time_from_external_rtc(ds3231):
 
 
 def to_iso8601(dt):
+    """Konvertuj datetime tuple na ISO 8601 string (UTC)"""
     return f"{dt[0]:04d}-{dt[1]:02d}-{dt[2]:02d}T{dt[4]:02d}:{dt[5]:02d}:{dt[6]:02d}Z"
 
 
+# === VALIDÁCIA ===
 def validate_host_address(host):
     if not host or len(host) < 3:
         return False
@@ -183,40 +193,58 @@ def get_reset_cause():
     return causes.get(machine.reset_cause(), "Unknown")
 
 
-# MQTT funkcie
-def get_mqtt_topic(mqtt_settings, suffix):
-    """Vytvor MQTT tému"""
-    return f"{mqtt_settings.department}/{mqtt_settings.room}/{mqtt_settings.id}/{suffix}"
+# === MQTT - SMART DEPARTMENT ŠTANDARD ===
+# Formát témy: gw/<device_type>/<device_id>/<action>
+# device_type = "thsensor"
+# action = data | status | set | cmd
+
+DEVICE_TYPE = "thsensor"
+
+
+def get_mqtt_topic(mqtt_settings, action):
+    """
+    Vytvor MQTT tému podľa Smart Department štandardu.
+
+    Formát: gw/<device_type>/<device_id>/<action>
+
+    Príklad: gw/thsensor/ps418ph/data
+    """
+    return f"gw/{mqtt_settings.device_type}/{mqtt_settings.device_id}/{action}"
 
 
 def connect_mqtt(mqtt_settings):
-    """Pripoj sa k MQTT brokeru"""
+    """Pripoj sa k MQTT brokeru s Last Will."""
     from umqtt.simple import MQTTClient
-    import ssl
 
-    client_id = f"thsensor-{mqtt_settings.id}"
+    client_id = f"{mqtt_settings.device_type}-{mqtt_settings.device_id}"
 
     # Last Will - offline status
     will_topic = get_mqtt_topic(mqtt_settings, "status")
     will_msg = '{"status": "offline"}'
 
+    # SSL ak je potrebné
     ssl_context = None
     if mqtt_settings.ssl:
+        import ssl
         ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         ssl_context.verify_mode = ssl.CERT_NONE
+
+    # User/password len ak sú zadané
+    user = mqtt_settings.user if mqtt_settings.user else None
+    pwd = mqtt_settings.password if mqtt_settings.password else None
 
     client = MQTTClient(
         client_id,
         mqtt_settings.server,
         port=mqtt_settings.port,
-        user=mqtt_settings.user,
-        password=mqtt_settings.password,
+        user=user,
+        password=pwd,
         ssl=ssl_context
     )
 
-    # Nastav Last Will
     client.set_last_will(will_topic, will_msg, retain=True)
 
+    feed_watchdog()
     client.connect()
     print(f"MQTT pripojené k {mqtt_settings.server}:{mqtt_settings.port}")
 
@@ -234,55 +262,70 @@ def disconnect_mqtt(client):
 
 
 def publish_status(client, mqtt_settings, online=True):
-    """Publikuj status zariadenia"""
-    from models.payload import StatusPayload
-    import machine
-    from constants import APP_VERSION
+    """
+    Publikuj status zariadenia podľa Smart Department štandardu.
 
+    Topic: gw/thsensor/<id>/status
+
+    Payload online:  {"status": "online"}
+    Payload offline: {"status": "offline"}
+    """
     topic = get_mqtt_topic(mqtt_settings, "status")
 
     if online:
-        # Pri online poslať aj ďalšie info
-        wlan = network.WLAN(network.STA_IF)
-        ip = wlan.ifconfig()[0] if wlan.isconnected() else "N/A"
-
-        payload = StatusPayload(
-            status="online",
-            ip=ip,
-            version=APP_VERSION,
-            freq_mhz=machine.freq() // 1000000
-        )
+        payload = {"status": "online"}
     else:
-        payload = StatusPayload(status="offline")
+        payload = {"status": "offline"}
 
-    client.publish(topic, payload.to_json(), retain=True)
-    print(f"Status publikovaný: {payload.to_dict()}")
+    msg = json.dumps(payload)
+    client.publish(topic, msg, retain=True)
+    print(f"Status: {topic} → {payload}")
 
 
 def publish_data(client, mqtt_settings, measurements):
-    """Publikuj namerané dáta"""
-    from models.payload import Payload
+    """
+    Publikuj namerané dáta podľa Smart Department štandardu.
+
+    Topic: gw/thsensor/<id>/data
+
+    Payload formát:
+    {
+        "dt": "2026-01-12T15:30:00Z",
+        "metrics": [
+            {"dt": "...", "name": "temperature", "value": 23.4, "units": "metric"},
+            {"dt": "...", "name": "humidity", "value": 65, "units": "percent"},
+            ...
+        ]
+    }
+    """
     import machine
 
     topic = get_mqtt_topic(mqtt_settings, "data")
 
+    # Aktuálny čas
     rtc = machine.RTC()
     dt = to_iso8601(rtc.datetime())
 
-    payload = Payload(dt=dt)
+    # Vytvor payload podľa štandardu
+    payload = {
+        "dt": dt,
+        "metrics": []
+    }
 
+    # Pridaj všetky merania
     for m in measurements:
-        payload.add_metric(
-            name=m.get("name", "unknown"),
-            value=m.get("value"),
-            units=m.get("units", ""),
-            dt=m.get("dt")
-        )
+        metric = {
+            "dt": m.get("dt", dt),
+            "name": m.get("name", "unknown"),
+            "value": m.get("value"),
+            "units": m.get("units", "")
+        }
+        payload["metrics"].append(metric)
 
-    msg = payload.to_json()
+    msg = json.dumps(payload)
     client.publish(topic, msg)
-    print(f"Dáta publikované do {topic}")
-    print(f"Payload: {msg}")
+    print(f"Dáta: {topic}")
+    print(f"  {len(payload['metrics'])} metrík odoslaných")
 
 
 def install_mqtt_package():
@@ -303,22 +346,9 @@ def install_mqtt_package():
             return False
 
 
-def publish_sensor_data(client, device_id, sensor_name, value, units, timestamp):
-    """Publikuj dáta z jedného senzora do samostatného topicu"""
-    topic = f"{device_id}-{sensor_name}"
-
-    payload = {
-        "value": value,
-        "units": units,
-        "dt": timestamp
-    }
-
-    msg = json.dumps(payload)
-    client.publish(topic, msg)
-    print(f"  → {topic}: {value} {units}")
-
-
+# === WATCHDOG ===
 _wdt = None
+
 
 def start_watchdog(timeout_ms=30000):
     """Spusti watchdog timer"""

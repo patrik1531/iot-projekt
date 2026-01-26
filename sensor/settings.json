@@ -1,17 +1,16 @@
 {
     "units": "metric",
-    "wifi_ssid": "iPhone užívateľa Martin",
-    "wifi_password": "heslo123",
+    "wifi_ssid": "endor-things",
+    "wifi_password": "welcome.to.the.endor",
     "ntp_host": "pool.ntp.org",
     "measurement_interval": 30000,
     "mqtt": {
-        "server": "172.20.10.3",
-        "port": 1883,
-        "user": "",
-        "password": "",
-        "ssl": false,
-        "department": "test",
-        "room": "ps418ph",
-        "id": "ps418ph"
+        "server": "147.232.52.253",
+        "port": 8883,
+        "user": "maker",
+        "password": "this.is.mqtt",
+        "ssl": true,
+        "device_type": "joke",
+        "device_id": "ps418ph"
     }
 }

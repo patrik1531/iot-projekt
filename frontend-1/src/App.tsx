@@ -41,7 +41,7 @@ export default function App() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <LayoutDashboard className="h-6 w-6 text-primary" />
-              <span className="font-semibold text-lg">IoT Monitoring</span>
+              <span className="font-semibold text-lg hidden lg:inline">IoT Monitoring</span>
             </div>
             <div className="flex gap-2 flex-wrap">
               <Button

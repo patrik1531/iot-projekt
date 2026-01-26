@@ -1,54 +1,113 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { SensorCard } from "./SensorCard";
 import { LiveIndicator } from "./LiveIndicator";
-import { Thermometer, Wind, Users, DoorOpen } from "lucide-react";
+import { Thermometer, Wind, Users, DoorOpen, Droplets } from "lucide-react";
 
 interface SensorData {
-  temperature: number;
-  airQuality: number;
-  peoplePresent: boolean;
-  windowOpen: boolean;
+  temperature: number | null;
+  humidity: number | null;
+  airQuality: number | null;
+  airQualityPercent: number | null;
+  peoplePresent: boolean | null;
+  windowOpen: boolean | null;
   timestamp: Date;
 }
 
-// Mock API call - replace with your actual API endpoints
-async function fetchCurrentData(): Promise<SensorData> {
-  // Simulate API delay
-  await new Promise((resolve) => setTimeout(resolve, 100));
-  
-  return {
-    temperature: 20 + Math.random() * 10,
-    airQuality: 70 + Math.random() * 25,
-    peoplePresent: Math.random() > 0.5,
-    windowOpen: Math.random() > 0.7,
-    timestamp: new Date(),
-  };
-}
+const SSE_ENDPOINT = "http://100.99.94.39:5163/api/sensor-events/stream";
 
 export function Dashboard() {
-  const [sensorData, setSensorData] = useState<SensorData | null>(null);
+  const [sensorData, setSensorData] = useState<SensorData>({
+    temperature: null,
+    humidity: null,
+    airQuality: null,
+    airQualityPercent: null,
+    peoplePresent: null,
+    windowOpen: null,
+    timestamp: new Date(),
+  });
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<"connecting" | "connected" | "error">("connecting");
+  const eventSourceRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
-    // Initial fetch
-    const loadData = async () => {
-      const data = await fetchCurrentData();
-      setSensorData(data);
-      setLastUpdate(new Date());
+    // Create EventSource connection for SSE
+    const eventSource = new EventSource(SSE_ENDPOINT);
+    eventSourceRef.current = eventSource;
+
+    eventSource.onopen = () => {
+      setConnectionStatus("connected");
     };
 
-    loadData();
+    eventSource.onerror = () => {
+      setConnectionStatus("error");
+    };
 
-    // Update every 5 seconds
-    const interval = setInterval(loadData, 5000);
+    // Handle temperature updates
+    eventSource.addEventListener("temperature-update", (event) => {
+      const data = JSON.parse(event.data);
+      setSensorData((prev) => ({ ...prev, temperature: data.value, timestamp: new Date() }));
+      setLastUpdate(new Date());
+    });
 
-    return () => clearInterval(interval);
+    // Handle humidity updates
+    eventSource.addEventListener("humidity-update", (event) => {
+      const data = JSON.parse(event.data);
+      setSensorData((prev) => ({ ...prev, humidity: data.value, timestamp: new Date() }));
+      setLastUpdate(new Date());
+    });
+
+    // Handle window updates
+    eventSource.addEventListener("window-update", (event) => {
+      const data = JSON.parse(event.data);
+      const isOpen = data.value === "open";
+      setSensorData((prev) => ({ ...prev, windowOpen: isOpen, timestamp: new Date() }));
+      setLastUpdate(new Date());
+    });
+
+    // Handle air quality updates (raw value)
+    eventSource.addEventListener("air_quality-update", (event) => {
+      const data = JSON.parse(event.data);
+      setSensorData((prev) => ({ ...prev, airQuality: data.value, timestamp: new Date() }));
+      setLastUpdate(new Date());
+    });
+
+    // Handle air quality percent updates
+    eventSource.addEventListener("air_quality_percent-update", (event) => {
+      const data = JSON.parse(event.data);
+      setSensorData((prev) => ({ ...prev, airQualityPercent: data.value, timestamp: new Date() }));
+      setLastUpdate(new Date());
+    });
+
+    // Handle motion/people updates
+    eventSource.addEventListener("motion-update", (event) => {
+      const data = JSON.parse(event.data);
+      setSensorData((prev) => ({ ...prev, peoplePresent: data.value, timestamp: new Date() }));
+      setLastUpdate(new Date());
+    });
+
+    // Cleanup on unmount
+    return () => {
+      eventSource.close();
+    };
   }, []);
 
-  if (!sensorData) {
+  const hasAnyData = sensorData.temperature !== null || 
+    sensorData.humidity !== null || 
+    sensorData.airQuality !== null || 
+    sensorData.peoplePresent !== null;
+
+  if (!hasAnyData && connectionStatus === "connecting") {
     return (
       <div className="flex items-center justify-center h-screen">
-        <div className="text-muted-foreground">Loading sensor data...</div>
+        <div className="text-muted-foreground">Connecting to sensor stream...</div>
+      </div>
+    );
+  }
+
+  if (connectionStatus === "error" && !hasAnyData) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-red-500">Failed to connect to sensor stream. Please check the connection.</div>
       </div>
     );
   }
@@ -70,41 +129,72 @@ export function Dashboard() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <SensorCard
           title="Temperature"
-          value={sensorData.temperature.toFixed(1)}
+          value={sensorData.temperature !== null ? sensorData.temperature.toFixed(1) : "--"}
           unit="°C"
           icon={Thermometer}
-          status="online"
+          status={sensorData.temperature !== null ? "online" : "offline"}
           trend={
-            sensorData.temperature > 25
-              ? "up"
-              : sensorData.temperature < 20
-              ? "down"
-              : "stable"
+            sensorData.temperature !== null
+              ? sensorData.temperature > 25
+                ? "up"
+                : sensorData.temperature < 20
+                ? "down"
+                : "stable"
+              : undefined
+          }
+        />
+        <SensorCard
+          title="Humidity"
+          value={sensorData.humidity !== null ? sensorData.humidity.toFixed(1) : "--"}
+          unit="%"
+          icon={Droplets}
+          status={sensorData.humidity !== null ? "online" : "offline"}
+          trend={
+            sensorData.humidity !== null
+              ? sensorData.humidity > 70
+                ? "up"
+                : sensorData.humidity < 40
+                ? "down"
+                : "stable"
+              : undefined
           }
         />
         <SensorCard
           title="Air Quality"
-          value={sensorData.airQuality.toFixed(0)}
+          value={sensorData.airQualityPercent !== null ? (sensorData.airQualityPercent).toFixed(0) : "--"}
           unit="%"
           icon={Wind}
-          status="online"
-          trend={sensorData.airQuality > 85 ? "up" : "stable"}
+          status={sensorData.airQualityPercent !== null ? "online" : "offline"}
+          trend={
+            sensorData.airQualityPercent !== null
+              ? sensorData.airQualityPercent > 0.85
+                ? "up"
+                : "stable"
+              : undefined
+          }
         />
         <SensorCard
-          title="People Present"
-          value={sensorData.peoplePresent}
+          title="Air Quality (Raw)"
+          value={sensorData.airQuality !== null ? sensorData.airQuality.toFixed(0) : "--"}
+          unit="PPM"
+          icon={Wind}
+          status={sensorData.airQuality !== null ? "online" : "offline"}
+        />
+        <SensorCard
+          title="Motion Detected"
+          value={sensorData.peoplePresent ?? false}
           icon={Users}
-          status={sensorData.peoplePresent ? "online" : "offline"}
+          status={sensorData.peoplePresent === null ? "offline" : sensorData.peoplePresent ? "online" : "offline"}
           isBoolean
         />
         <SensorCard
           title="Window Status"
-          value={sensorData.windowOpen}
+          value={sensorData.windowOpen ?? false}
           icon={DoorOpen}
-          status={sensorData.windowOpen ? "warning" : "online"}
+          status={sensorData.windowOpen === null ? "offline" : sensorData.windowOpen ? "warning" : "online"}
           isBoolean
         />
       </div>
@@ -114,15 +204,21 @@ export function Dashboard() {
           <h3 className="font-semibold mb-2">System Status</h3>
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
-              <span className="text-muted-foreground">All Sensors</span>
-              <span className="text-green-500 font-medium">Online</span>
+              <span className="text-muted-foreground">Connection</span>
+              <span className={`font-medium ${
+                connectionStatus === "connected" ? "text-green-500" : 
+                connectionStatus === "error" ? "text-red-500" : "text-yellow-500"
+              }`}>
+                {connectionStatus === "connected" ? "Connected" : 
+                 connectionStatus === "error" ? "Disconnected" : "Connecting..."}
+              </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Data Refresh</span>
-              <span className="font-medium">5s interval</span>
+              <span className="text-muted-foreground">Stream Type</span>
+              <span className="font-medium">Server-Sent Events</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Last Sync</span>
+              <span className="text-muted-foreground">Last Update</span>
               <span className="font-medium">
                 {sensorData.timestamp.toLocaleTimeString()}
               </span>
@@ -134,21 +230,25 @@ export function Dashboard() {
           <h3 className="font-semibold mb-2">Quick Stats</h3>
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Avg Temperature</span>
+              <span className="text-muted-foreground">Temperature</span>
               <span className="font-medium">
-                {sensorData.temperature.toFixed(1)}°C
+                {sensorData.temperature !== null ? `${sensorData.temperature.toFixed(1)}°C` : "--"}
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Air Quality Index</span>
+              <span className="text-muted-foreground">Air Quality</span>
               <span className="font-medium">
-                {sensorData.airQuality > 85 ? "Excellent" : "Good"}
+                {sensorData.airQualityPercent !== null 
+                  ? sensorData.airQualityPercent > 0.85 ? "Excellent" : sensorData.airQualityPercent > 0.6 ? "Good" : "Fair"
+                  : "--"}
               </span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Room Occupancy</span>
               <span className="font-medium">
-                {sensorData.peoplePresent ? "Occupied" : "Empty"}
+                {sensorData.peoplePresent !== null 
+                  ? sensorData.peoplePresent ? "Motion Detected" : "Empty"
+                  : "--"}
               </span>
             </div>
           </div>
