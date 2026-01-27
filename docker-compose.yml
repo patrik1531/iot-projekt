@@ -14,24 +14,24 @@ services:
       - "5432"
 
   # .NET Backend API
-backend:
-  build:
-    context: ./backend/Application
-    dockerfile: Dockerfile
-  container_name: iot-backend
-  restart: unless-stopped
-  expose:
-    - "8080"
-  environment:
-    - ASPNETCORE_ENVIRONMENT=Production
-    - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=matotvrdon;Username=matotvrdon;Password=matotvrdon
-    - Telegram__Token=8228149249:AAEZTqTirXDj07Wf-weo5TzURoLKSN22TIw
-    - Notifier__Password=dgRk9cQ8sU4fCO
-    - Gemini__ApiKey=AIzaSyBPr6ba5J-E19l1IY6nl2LqcqRtbxlQDTs
-    - MqttSettings__Broker=147.232.205.176
-    - MqttSettings__Port=8883
-  depends_on:
-    - postgres
+  backend:
+    build:
+      context: ./backend/Application
+      dockerfile: Dockerfile
+    container_name: iot-backend
+    restart: unless-stopped
+    expose:
+      - "8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=matotvrdon;Username=matotvrdon;Password=matotvrdon
+      - Telegram__Token=8228149249:AAEZTqTirXDj07Wf-weo5TzURoLKSN22TIw
+      - Notifier__Password=dgRk9cQ8sU4fCO
+      - Gemini__ApiKey=AIzaSyBPr6ba5J-E19l1IY6nl2LqcqRtbxlQDTs
+      - MqttSettings__Broker=147.232.205.176
+      - MqttSettings__Port=8883
+    depends_on:
+      - postgres
 
   # Vite Frontend (nginx)
   frontend:
