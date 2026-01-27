@@ -16,7 +16,7 @@ services:
   # .NET Backend API
   backend:
     build:
-      context: ./backend
+      context: ./backend/Application
       dockerfile: Dockerfile
     container_name: iot-backend
     restart: unless-stopped
