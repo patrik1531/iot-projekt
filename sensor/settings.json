@@ -1,11 +1,11 @@
 {
     "units": "metric",
-    "wifi_ssid": "endor-things",
-    "wifi_password": "welcome.to.the.endor",
+    "wifi_ssid": "dune-things",
+    "wifi_password": "welcome.to.the.dune",
     "ntp_host": "pool.ntp.org",
     "measurement_interval": 30000,
     "mqtt": {
-        "server": "147.232.52.253",
+        "server": "147.232.45.9",
         "port": 8883,
         "user": "maker",
         "password": "this.is.mqtt",

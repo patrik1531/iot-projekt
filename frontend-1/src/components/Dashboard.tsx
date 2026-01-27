@@ -13,7 +13,7 @@ interface SensorData {
   timestamp: Date;
 }
 
-const SSE_ENDPOINT = "http://100.99.94.39:5163/api/sensor-events/stream";
+const SSE_ENDPOINT = "/api/sensor-events/stream";
 
 export function Dashboard() {
   const [sensorData, setSensorData] = useState<SensorData>({
@@ -35,52 +35,60 @@ export function Dashboard() {
     eventSourceRef.current = eventSource;
 
     eventSource.onopen = () => {
+      console.log("SSE connected");
       setConnectionStatus("connected");
     };
 
-    eventSource.onerror = () => {
+    eventSource.onerror = (e) => {
+      console.error("SSE error:", e);
       setConnectionStatus("error");
     };
 
-    // Handle temperature updates
-    eventSource.addEventListener("temperature-update", (event) => {
+    // Handle temperature updates (backend sends "Temperature-update")
+    eventSource.addEventListener("Temperature-update", (event) => {
       const data = JSON.parse(event.data);
+      console.log("Temperature:", data.value);
       setSensorData((prev) => ({ ...prev, temperature: data.value, timestamp: new Date() }));
       setLastUpdate(new Date());
     });
 
-    // Handle humidity updates
-    eventSource.addEventListener("humidity-update", (event) => {
+    // Handle humidity updates (backend sends "Humidity-update")
+    eventSource.addEventListener("Humidity-update", (event) => {
       const data = JSON.parse(event.data);
+      console.log("Humidity:", data.value);
       setSensorData((prev) => ({ ...prev, humidity: data.value, timestamp: new Date() }));
       setLastUpdate(new Date());
     });
 
-    // Handle window updates
-    eventSource.addEventListener("window-update", (event) => {
+    // Handle window updates (backend sends "Window-update")
+    eventSource.addEventListener("Window-update", (event) => {
       const data = JSON.parse(event.data);
+      console.log("Window:", data.value);
       const isOpen = data.value === "open";
       setSensorData((prev) => ({ ...prev, windowOpen: isOpen, timestamp: new Date() }));
       setLastUpdate(new Date());
     });
 
-    // Handle air quality updates (raw value)
-    eventSource.addEventListener("air_quality-update", (event) => {
+    // Handle air quality updates (backend sends "AirQuality-update")
+    eventSource.addEventListener("AirQuality-update", (event) => {
       const data = JSON.parse(event.data);
+      console.log("AirQuality:", data.value);
       setSensorData((prev) => ({ ...prev, airQuality: data.value, timestamp: new Date() }));
       setLastUpdate(new Date());
     });
 
-    // Handle air quality percent updates
-    eventSource.addEventListener("air_quality_percent-update", (event) => {
+    // Handle air quality percent updates (backend sends "AirQualityPercent-update")
+    eventSource.addEventListener("AirQualityPercent-update", (event) => {
       const data = JSON.parse(event.data);
+      console.log("AirQualityPercent:", data.value);
       setSensorData((prev) => ({ ...prev, airQualityPercent: data.value, timestamp: new Date() }));
       setLastUpdate(new Date());
     });
 
-    // Handle motion/people updates
-    eventSource.addEventListener("motion-update", (event) => {
+    // Handle motion/people updates (backend sends "Motion-update")
+    eventSource.addEventListener("Motion-update", (event) => {
       const data = JSON.parse(event.data);
+      console.log("Motion:", data.value);
       setSensorData((prev) => ({ ...prev, peoplePresent: data.value, timestamp: new Date() }));
       setLastUpdate(new Date());
     });
@@ -164,7 +172,7 @@ export function Dashboard() {
         />
         <SensorCard
           title="Air Quality"
-          value={sensorData.airQualityPercent !== null ? (sensorData.airQualityPercent).toFixed(0) : "--"}
+          value={sensorData.airQualityPercent !== null ? (sensorData.airQualityPercent * 100).toFixed(0) : "--"}
           unit="%"
           icon={Wind}
           status={sensorData.airQualityPercent !== null ? "online" : "offline"}

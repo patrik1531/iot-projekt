@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
-import { Bell, AlertTriangle, Info, CheckCircle, X } from "lucide-react";
+import { Bell, AlertTriangle, Info, CheckCircle, X, Wifi, WifiOff } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 interface Alert {
@@ -16,63 +16,66 @@ interface Alert {
   read: boolean;
 }
 
+interface VentilationEventFromServer {
+  id: number;
+  dt: string;
+  deviceId: string;
+  co2Ppm: number;
+  windowOpen: boolean;
+  level: number;
+  type: "info" | "warning" | "error" | "success";
+  action: number;
+  message: string;
+  title: string;
+}
+
+const SSE_ENDPOINT = "/api/sensor-events/stream";
+
 export function Alerts() {
-  const [alerts, setAlerts] = useState<Alert[]>([
-    {
-      id: "1",
-      type: "warning",
-      title: "High Temperature Detected",
-      message: "Temperature has exceeded 28°C in the living room",
-      device: "Smart Thermostat",
-      timestamp: new Date(Date.now() - 300000),
-      read: false,
-    },
-    {
-      id: "2",
-      type: "info",
-      title: "Window Opened",
-      message: "Window actuator activated - window is now open",
-      device: "Window Actuator",
-      timestamp: new Date(Date.now() - 600000),
-      read: false,
-    },
-    {
-      id: "3",
-      type: "error",
-      title: "Low Battery Warning",
-      message: "Security camera battery is below 50%",
-      device: "Security Camera",
-      timestamp: new Date(Date.now() - 1800000),
-      read: true,
-    },
-    {
-      id: "4",
-      type: "success",
-      title: "Automation Executed",
-      message: "Morning Light automation rule triggered successfully",
-      device: "LED Strip",
-      timestamp: new Date(Date.now() - 3600000),
-      read: true,
-    },
-    {
-      id: "5",
-      type: "warning",
-      title: "Poor Air Quality",
-      message: "Air quality has dropped below 75%",
-      device: "Air Quality Sensor",
-      timestamp: new Date(Date.now() - 7200000),
-      read: true,
-    },
-    {
-      id: "6",
-      type: "info",
-      title: "Device Connected",
-      message: "New device 'Smart Speaker' connected to the network",
-      device: "Smart Speaker",
-      timestamp: new Date(Date.now() - 86400000),
-      read: true,
-    },
-  ]);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [connectionStatus, setConnectionStatus] = useState<"connecting" | "connected" | "error">("connecting");
+  const eventSourceRef = useRef<EventSource | null>(null);
+
+  // Connect to SSE stream
+  useEffect(() => {
+    const eventSource = new EventSource(SSE_ENDPOINT);
+    eventSourceRef.current = eventSource;
+
+    eventSource.onopen = () => {
+      console.log("Alerts SSE connected");
+      setConnectionStatus("connected");
+    };
+
+    eventSource.onerror = (e) => {
+      console.error("Alerts SSE error:", e);
+      setConnectionStatus("error");
+    };
+
+    // Handle VentilationEvent-update (alerts from backend)
+    eventSource.addEventListener("VentilationEvent-update", (event) => {
+      const data = JSON.parse(event.data);
+      const ventEvent: VentilationEventFromServer = data.value;
+      console.log("New ventilation alert:", ventEvent);
+      
+      const newAlert: Alert = {
+        id: `${ventEvent.id}-${Date.now()}`, // Unique ID
+        type: ventEvent.type,
+        title: ventEvent.title,
+        message: ventEvent.message,
+        device: `CO₂ Sensor (${ventEvent.co2Ppm} ppm)`,
+        timestamp: new Date(ventEvent.dt),
+        read: false,
+      };
+      
+      // Add new alert at the beginning
+      setAlerts((prev) => [newAlert, ...prev]);
+    });
+
+    // Cleanup on unmount
+    return () => {
+      eventSource.close();
+    };
+  }, []);
 
   const markAsRead = (id: string) => {
     setAlerts((prev) =>
@@ -101,7 +104,7 @@ export function Alerts() {
     }
   };
 
-  const getAlertBadgeVariant = (type: string) => {
+  const getAlertBadgeVariant = (type: string): "default" | "destructive" | "secondary" => {
     switch (type) {
       case "error":
         return "destructive";
@@ -114,7 +117,6 @@ export function Alerts() {
 
   const unreadCount = alerts.filter((a) => !a.read).length;
   const unreadAlerts = alerts.filter((a) => !a.read);
-  const readAlerts = alerts.filter((a) => a.read);
 
   return (
     <div className="space-y-6">
@@ -125,8 +127,23 @@ export function Alerts() {
             {unreadCount > 0 && (
               <Badge variant="destructive">{unreadCount} new</Badge>
             )}
+            {/* Connection status indicator */}
+            <div className="ml-2" title={`Status: ${connectionStatus}`}>
+              {connectionStatus === "connected" ? (
+                <Wifi className="h-4 w-4 text-green-500" />
+              ) : connectionStatus === "error" ? (
+                <WifiOff className="h-4 w-4 text-red-500" />
+              ) : (
+                <Wifi className="h-4 w-4 text-yellow-500 animate-pulse" />
+              )}
+            </div>
           </div>
-          <p className="text-muted-foreground">System notifications and alerts</p>
+          <p className="text-muted-foreground">
+            System notifications and alerts
+            {connectionStatus === "error" && (
+              <span className="text-red-500 ml-2">(Disconnected)</span>
+            )}
+          </p>
         </div>
         {unreadCount > 0 && (
           <Button variant="outline" onClick={markAllAsRead}>
@@ -155,9 +172,7 @@ export function Alerts() {
         </Card>
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm text-muted-foreground">
-              Warnings
-            </CardTitle>
+            <CardTitle className="text-sm text-muted-foreground">Warnings</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
@@ -252,136 +267,163 @@ export function Alerts() {
         </TabsContent>
 
         <TabsContent value="all" className="space-y-3">
-          {alerts.map((alert, index) => (
-            <motion.div
-              key={alert.id}
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: index * 0.05 }}
-            >
-              <Card className={!alert.read ? "border-l-4 border-l-primary" : ""}>
-                <CardContent className="pt-6">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-start gap-3 flex-1">
-                      {getAlertIcon(alert.type)}
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <h3 className="font-semibold">{alert.title}</h3>
-                          <Badge variant={getAlertBadgeVariant(alert.type)}>
-                            {alert.type}
-                          </Badge>
-                        </div>
-                        <p className="text-sm text-muted-foreground mb-2">
-                          {alert.message}
-                        </p>
-                        <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                          {alert.device && <span>Device: {alert.device}</span>}
-                          <span>{alert.timestamp.toLocaleString()}</span>
+          {alerts.length === 0 ? (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-10">
+                <Bell className="h-12 w-12 text-muted-foreground mb-2" />
+                <p className="text-muted-foreground">No alerts yet</p>
+              </CardContent>
+            </Card>
+          ) : (
+            alerts.map((alert, index) => (
+              <motion.div
+                key={alert.id}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: index * 0.05 }}
+              >
+                <Card className={!alert.read ? "border-l-4 border-l-primary" : ""}>
+                  <CardContent className="pt-6">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex items-start gap-3 flex-1">
+                        {getAlertIcon(alert.type)}
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <h3 className="font-semibold">{alert.title}</h3>
+                            <Badge variant={getAlertBadgeVariant(alert.type)}>
+                              {alert.type}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground mb-2">
+                            {alert.message}
+                          </p>
+                          <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                            {alert.device && <span>Device: {alert.device}</span>}
+                            <span>{alert.timestamp.toLocaleString()}</span>
+                          </div>
                         </div>
                       </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => deleteAlert(alert.id)}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => deleteAlert(alert.id)}
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          ))}
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ))
+          )}
         </TabsContent>
 
         <TabsContent value="warnings" className="space-y-3">
-          {alerts
-            .filter((a) => a.type === "warning")
-            .map((alert, index) => (
-              <motion.div
-                key={alert.id}
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: index * 0.05 }}
-              >
-                <Card>
-                  <CardContent className="pt-6">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex items-start gap-3 flex-1">
-                        {getAlertIcon(alert.type)}
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <h3 className="font-semibold">{alert.title}</h3>
-                            <Badge variant={getAlertBadgeVariant(alert.type)}>
-                              {alert.type}
-                            </Badge>
-                          </div>
-                          <p className="text-sm text-muted-foreground mb-2">
-                            {alert.message}
-                          </p>
-                          <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                            {alert.device && <span>Device: {alert.device}</span>}
-                            <span>{alert.timestamp.toLocaleString()}</span>
+          {alerts.filter((a) => a.type === "warning").length === 0 ? (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-10">
+                <AlertTriangle className="h-12 w-12 text-muted-foreground mb-2" />
+                <p className="text-muted-foreground">No warnings</p>
+              </CardContent>
+            </Card>
+          ) : (
+            alerts
+              .filter((a) => a.type === "warning")
+              .map((alert, index) => (
+                <motion.div
+                  key={alert.id}
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: index * 0.05 }}
+                >
+                  <Card className={!alert.read ? "border-l-4 border-l-primary" : ""}>
+                    <CardContent className="pt-6">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex items-start gap-3 flex-1">
+                          {getAlertIcon(alert.type)}
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h3 className="font-semibold">{alert.title}</h3>
+                              <Badge variant={getAlertBadgeVariant(alert.type)}>
+                                {alert.type}
+                              </Badge>
+                            </div>
+                            <p className="text-sm text-muted-foreground mb-2">
+                              {alert.message}
+                            </p>
+                            <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                              {alert.device && <span>Device: {alert.device}</span>}
+                              <span>{alert.timestamp.toLocaleString()}</span>
+                            </div>
                           </div>
                         </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => deleteAlert(alert.id)}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => deleteAlert(alert.id)}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            ))}
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              ))
+          )}
         </TabsContent>
 
         <TabsContent value="errors" className="space-y-3">
-          {alerts
-            .filter((a) => a.type === "error")
-            .map((alert, index) => (
-              <motion.div
-                key={alert.id}
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: index * 0.05 }}
-              >
-                <Card>
-                  <CardContent className="pt-6">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex items-start gap-3 flex-1">
-                        {getAlertIcon(alert.type)}
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <h3 className="font-semibold">{alert.title}</h3>
-                            <Badge variant={getAlertBadgeVariant(alert.type)}>
-                              {alert.type}
-                            </Badge>
-                          </div>
-                          <p className="text-sm text-muted-foreground mb-2">
-                            {alert.message}
-                          </p>
-                          <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                            {alert.device && <span>Device: {alert.device}</span>}
-                            <span>{alert.timestamp.toLocaleString()}</span>
+          {alerts.filter((a) => a.type === "error").length === 0 ? (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-10">
+                <AlertTriangle className="h-12 w-12 text-muted-foreground mb-2" />
+                <p className="text-muted-foreground">No errors</p>
+              </CardContent>
+            </Card>
+          ) : (
+            alerts
+              .filter((a) => a.type === "error")
+              .map((alert, index) => (
+                <motion.div
+                  key={alert.id}
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: index * 0.05 }}
+                >
+                  <Card className={!alert.read ? "border-l-4 border-l-primary" : ""}>
+                    <CardContent className="pt-6">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex items-start gap-3 flex-1">
+                          {getAlertIcon(alert.type)}
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h3 className="font-semibold">{alert.title}</h3>
+                              <Badge variant={getAlertBadgeVariant(alert.type)}>
+                                {alert.type}
+                              </Badge>
+                            </div>
+                            <p className="text-sm text-muted-foreground mb-2">
+                              {alert.message}
+                            </p>
+                            <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                              {alert.device && <span>Device: {alert.device}</span>}
+                              <span>{alert.timestamp.toLocaleString()}</span>
+                            </div>
                           </div>
                         </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => deleteAlert(alert.id)}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => deleteAlert(alert.id)}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            ))}
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              ))
+          )}
         </TabsContent>
       </Tabs>
     </div>

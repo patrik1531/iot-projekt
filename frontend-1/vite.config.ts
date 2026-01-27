@@ -62,6 +62,28 @@
           changeOrigin: true,
           secure: false,
         },
+        // Špeciálne pre SSE stream
+        '/api/sensor-events/stream': {
+          target: 'http://100.99.94.39:5163',
+          changeOrigin: true,
+          secure: false,
+          ws: false,
+          // Dôležité pre SSE - vypnúť buffering
+          configure: (proxy) => {
+            proxy.on('proxyRes', (proxyRes) => {
+              proxyRes.headers['cache-control'] = 'no-cache';
+              proxyRes.headers['connection'] = 'keep-alive';
+            });
+          },
+        },
       },
+
+      cors: true,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      },
+      allowedHosts: ['100.99.94.39'],
     },
   });

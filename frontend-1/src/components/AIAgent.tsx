@@ -46,76 +46,114 @@ export function AIAgent() {
     }
   }, [messages]);
 
-  // Mock AI processing - replace with actual API call to control Raspberry Pico
-  const processCommand = async (command: string): Promise<Message> => {
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-
-    const lowerCommand = command.toLowerCase();
-    let response = "";
-    let action = undefined;
-
-    // Pattern matching for commands
-    if (lowerCommand.includes("turn on") || lowerCommand.includes("zapni")) {
-      if (lowerCommand.includes("led") || lowerCommand.includes("light")) {
-        response = "LED light has been turned on successfully.";
-        action = { type: "power", device: "LED", value: true };
-        addRecentAction("LED Light", "Turned ON", "success");
-      } else if (lowerCommand.includes("fan") || lowerCommand.includes("ventilator")) {
-        response = "Fan has been turned on successfully.";
-        action = { type: "power", device: "Fan", value: true };
-        addRecentAction("Fan", "Turned ON", "success");
-      }
-    } else if (lowerCommand.includes("turn off") || lowerCommand.includes("vypni")) {
-      if (lowerCommand.includes("led") || lowerCommand.includes("light")) {
-        response = "LED light has been turned off successfully.";
-        action = { type: "power", device: "LED", value: false };
-        addRecentAction("LED Light", "Turned OFF", "success");
-      } else if (lowerCommand.includes("fan") || lowerCommand.includes("ventilator")) {
-        response = "Fan has been turned off successfully.";
-        action = { type: "power", device: "Fan", value: false };
-        addRecentAction("Fan", "Turned OFF", "success");
-      }
-    } else if (lowerCommand.includes("temperature") || lowerCommand.includes("teplota")) {
-      const tempMatch = lowerCommand.match(/(\d+)/);
-      const temp = tempMatch ? tempMatch[1] : "22";
-      response = `Temperature has been set to ${temp}°C.`;
-      action = { type: "temperature", device: "Thermostat", value: parseInt(temp) };
-      addRecentAction("Thermostat", `Set to ${temp}°C`, "success");
-    } else if (lowerCommand.includes("window") || lowerCommand.includes("okno")) {
-      if (lowerCommand.includes("open") || lowerCommand.includes("otvor")) {
-        response = "Window control activated - opening window.";
-        action = { type: "window", device: "Window", value: true };
-        addRecentAction("Window", "Opened", "success");
-      } else if (lowerCommand.includes("close") || lowerCommand.includes("zatvor")) {
-        response = "Window control activated - closing window.";
-        action = { type: "window", device: "Window", value: false };
-        addRecentAction("Window", "Closed", "success");
-      }
-    } else if (lowerCommand.includes("status") || lowerCommand.includes("stav")) {
-      response =
-        "All systems operational. Temperature: 22.5°C, Air Quality: 87%, LED: ON, Fan: OFF, Window: CLOSED";
-    } else if (lowerCommand.includes("hello") || lowerCommand.includes("ahoj")) {
-      response = "Hello! How can I help you control your IoT devices today?";
-    } else {
-      response =
-        "I understand you want to control something, but I'm not sure what. Try: 'turn on LED', 'set temperature to 23', 'open window', or 'check status'.";
-    }
-
-    return {
-      id: Date.now().toString(),
-      type: "agent",
-      content: response,
-      timestamp: new Date(),
-      action,
-    };
-  };
-
   const addRecentAction = (
     device: string,
     action: string,
     status: "success" | "pending" | "error"
   ) => {
     setRecentActions((prev) => [{ device, action, status }, ...prev.slice(0, 4)]);
+  };
+
+  // Helper function to parse actions from command/response for UI feedback
+  const parseActionFromCommand = (command: string): Message["action"] | undefined => {
+    const lowerCommand = command.toLowerCase();
+
+    // Detect LED actions
+    if (lowerCommand.includes("led") || lowerCommand.includes("light")) {
+      if (lowerCommand.includes("turn on") || lowerCommand.includes("zapni")) {
+        addRecentAction("LED Light", "Turned ON", "success");
+        return { type: "power", device: "LED", value: true };
+      } else if (lowerCommand.includes("turn off") || lowerCommand.includes("vypni")) {
+        addRecentAction("LED Light", "Turned OFF", "success");
+        return { type: "power", device: "LED", value: false };
+      }
+    }
+
+    // Detect Fan actions
+    if (lowerCommand.includes("fan") || lowerCommand.includes("ventilator")) {
+      if (lowerCommand.includes("turn on") || lowerCommand.includes("zapni")) {
+        addRecentAction("Fan", "Turned ON", "success");
+        return { type: "power", device: "Fan", value: true };
+      } else if (lowerCommand.includes("turn off") || lowerCommand.includes("vypni")) {
+        addRecentAction("Fan", "Turned OFF", "success");
+        return { type: "power", device: "Fan", value: false };
+      }
+    }
+
+    // Detect Temperature actions
+    if (lowerCommand.includes("temperature") || lowerCommand.includes("teplota")) {
+      const tempMatch = lowerCommand.match(/(\d+)/);
+      if (tempMatch) {
+        const temp = tempMatch[1];
+        addRecentAction("Thermostat", `Set to ${temp}°C`, "success");
+        return { type: "temperature", device: "Thermostat", value: parseInt(temp) };
+      }
+    }
+
+    // Detect Window actions
+    if (lowerCommand.includes("window") || lowerCommand.includes("okno")) {
+      if (lowerCommand.includes("open") || lowerCommand.includes("otvor")) {
+        addRecentAction("Window", "Opened", "success");
+        return { type: "window", device: "Window", value: true };
+      } else if (lowerCommand.includes("close") || lowerCommand.includes("zatvor")) {
+        addRecentAction("Window", "Closed", "success");
+        return { type: "window", device: "Window", value: false };
+      }
+    }
+
+    return undefined;
+  };
+
+  // Process command via API call to /api/reports/ask
+  const processCommand = async (command: string): Promise<Message> => {
+    try {
+      const response = await fetch("/api/reports/ask", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ userText: command }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const responseText = data.text || "Command processed successfully.";
+
+      // Parse the command to detect actions for the UI
+      const action = parseActionFromCommand(command);
+
+      return {
+        id: Date.now().toString(),
+        type: "agent",
+        content: responseText,
+        timestamp: new Date(),
+        action,
+      };
+    } catch (error) {
+      console.error("Error calling AI API:", error);
+      
+      // Update recent action to show error if we detected an action attempt
+      const lowerCommand = command.toLowerCase();
+      if (lowerCommand.includes("led") || lowerCommand.includes("light")) {
+        addRecentAction("LED Light", "Command failed", "error");
+      } else if (lowerCommand.includes("fan") || lowerCommand.includes("ventilator")) {
+        addRecentAction("Fan", "Command failed", "error");
+      } else if (lowerCommand.includes("temperature") || lowerCommand.includes("teplota")) {
+        addRecentAction("Thermostat", "Command failed", "error");
+      } else if (lowerCommand.includes("window") || lowerCommand.includes("okno")) {
+        addRecentAction("Window", "Command failed", "error");
+      }
+
+      return {
+        id: Date.now().toString(),
+        type: "agent",
+        content: "Sorry, I encountered an error processing your request. Please check your connection and try again.",
+        timestamp: new Date(),
+      };
+    }
   };
 
   const handleSend = async () => {
