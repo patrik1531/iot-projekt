@@ -1,11 +1,11 @@
 {
     "units": "metric",
-    "wifi_ssid": "dune-things",
-    "wifi_password": "welcome.to.the.dune",
+    "wifi_ssid": "kronos-things",
+    "wifi_password": "welcome.to.the.kronos",
     "ntp_host": "pool.ntp.org",
     "measurement_interval": 30000,
     "mqtt": {
-        "server": "147.232.45.9",
+        "server": "147.232.44.94",
         "port": 8883,
         "user": "maker",
         "password": "this.is.mqtt",
