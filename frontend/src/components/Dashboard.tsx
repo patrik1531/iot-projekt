@@ -14,6 +14,7 @@ interface SensorData {
 }
 
 const SSE_ENDPOINT = "/api/sensor-events/stream";
+const API_BASE = "/api/sensors";
 
 export function Dashboard() {
   const [sensorData, setSensorData] = useState<SensorData>({
@@ -27,10 +28,68 @@ export function Dashboard() {
   });
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<"connecting" | "connected" | "error">("connecting");
+  const [isLoadingInitial, setIsLoadingInitial] = useState(true);
   const eventSourceRef = useRef<EventSource | null>(null);
 
+  // Fetch initial/latest values from REST endpoints
   useEffect(() => {
-    // Create EventSource connection for SSE
+    const fetchInitialData = async () => {
+      try {
+        const endpoints = [
+          { key: "temperature", url: `${API_BASE}/temperature/latest` },
+          { key: "humidity", url: `${API_BASE}/humidity/latest` },
+          { key: "airQuality", url: `${API_BASE}/air-quality/latest` },
+          { key: "airQualityPercent", url: `${API_BASE}/air-quality-percent/latest` },
+          { key: "peoplePresent", url: `${API_BASE}/motion/latest` },
+          { key: "windowOpen", url: `${API_BASE}/window/latest` },
+        ];
+
+        const results = await Promise.allSettled(
+          endpoints.map(async (endpoint) => {
+            const response = await fetch(endpoint.url);
+            if (!response.ok) throw new Error(`Failed to fetch ${endpoint.key}`);
+            const data = await response.json();
+            return { key: endpoint.key, value: data.value };
+          })
+        );
+
+        const initialData: Partial<SensorData> = {};
+        
+        results.forEach((result, index) => {
+          if (result.status === "fulfilled") {
+            const { key, value } = result.value;
+            
+            // Handle window value (comes as "open"/"closed" string)
+            if (key === "windowOpen") {
+              initialData[key] = value === "open";
+            } else {
+              initialData[key as keyof SensorData] = value;
+            }
+          } else {
+            console.warn(`Failed to load ${endpoints[index].key}:`, result.reason);
+          }
+        });
+
+        setSensorData((prev) => ({
+          ...prev,
+          ...initialData,
+          timestamp: new Date(),
+        }));
+        
+        setLastUpdate(new Date());
+        console.log("Initial sensor data loaded:", initialData);
+      } catch (error) {
+        console.error("Error fetching initial sensor data:", error);
+      } finally {
+        setIsLoadingInitial(false);
+      }
+    };
+
+    fetchInitialData();
+  }, []);
+
+  // Connect to SSE stream for real-time updates
+  useEffect(() => {
     const eventSource = new EventSource(SSE_ENDPOINT);
     eventSourceRef.current = eventSource;
 
@@ -44,7 +103,7 @@ export function Dashboard() {
       setConnectionStatus("error");
     };
 
-    // Handle temperature updates (backend sends "Temperature-update")
+    // Handle temperature updates
     eventSource.addEventListener("Temperature-update", (event) => {
       const data = JSON.parse(event.data);
       console.log("Temperature:", data.value);
@@ -52,7 +111,7 @@ export function Dashboard() {
       setLastUpdate(new Date());
     });
 
-    // Handle humidity updates (backend sends "Humidity-update")
+    // Handle humidity updates
     eventSource.addEventListener("Humidity-update", (event) => {
       const data = JSON.parse(event.data);
       console.log("Humidity:", data.value);
@@ -60,7 +119,7 @@ export function Dashboard() {
       setLastUpdate(new Date());
     });
 
-    // Handle window updates (backend sends "Window-update")
+    // Handle window updates
     eventSource.addEventListener("Window-update", (event) => {
       const data = JSON.parse(event.data);
       console.log("Window:", data.value);
@@ -69,7 +128,7 @@ export function Dashboard() {
       setLastUpdate(new Date());
     });
 
-    // Handle air quality updates (backend sends "AirQuality-update")
+    // Handle air quality updates
     eventSource.addEventListener("AirQuality-update", (event) => {
       const data = JSON.parse(event.data);
       console.log("AirQuality:", data.value);
@@ -77,7 +136,7 @@ export function Dashboard() {
       setLastUpdate(new Date());
     });
 
-    // Handle air quality percent updates (backend sends "AirQualityPercent-update")
+    // Handle air quality percent updates
     eventSource.addEventListener("AirQualityPercent-update", (event) => {
       const data = JSON.parse(event.data);
       console.log("AirQualityPercent:", data.value);
@@ -85,7 +144,7 @@ export function Dashboard() {
       setLastUpdate(new Date());
     });
 
-    // Handle motion/people updates (backend sends "Motion-update")
+    // Handle motion/people updates
     eventSource.addEventListener("Motion-update", (event) => {
       const data = JSON.parse(event.data);
       console.log("Motion:", data.value);
@@ -99,15 +158,17 @@ export function Dashboard() {
     };
   }, []);
 
-  const hasAnyData = sensorData.temperature !== null || 
-    sensorData.humidity !== null || 
-    sensorData.airQuality !== null || 
+  const hasAnyData =
+    sensorData.temperature !== null ||
+    sensorData.humidity !== null ||
+    sensorData.airQuality !== null ||
     sensorData.peoplePresent !== null;
 
-  if (!hasAnyData && connectionStatus === "connecting") {
+  // Show loading only during initial fetch
+  if (isLoadingInitial) {
     return (
       <div className="flex items-center justify-center h-screen">
-        <div className="text-muted-foreground">Connecting to sensor stream...</div>
+        <div className="text-muted-foreground">Loading sensor data...</div>
       </div>
     );
   }
@@ -115,7 +176,9 @@ export function Dashboard() {
   if (connectionStatus === "error" && !hasAnyData) {
     return (
       <div className="flex items-center justify-center h-screen">
-        <div className="text-red-500">Failed to connect to sensor stream. Please check the connection.</div>
+        <div className="text-red-500">
+          Failed to connect to sensor stream. Please check the connection.
+        </div>
       </div>
     );
   }
@@ -172,7 +235,11 @@ export function Dashboard() {
         />
         <SensorCard
           title="Air Quality"
-          value={sensorData.airQualityPercent !== null ? (sensorData.airQualityPercent * 100).toFixed(0) : "--"}
+          value={
+            sensorData.airQualityPercent !== null
+              ? (sensorData.airQualityPercent * 100).toFixed(0)
+              : "--"
+          }
           unit="%"
           icon={Wind}
           status={sensorData.airQualityPercent !== null ? "online" : "offline"}
@@ -195,14 +262,26 @@ export function Dashboard() {
           title="Motion Detected"
           value={sensorData.peoplePresent ?? false}
           icon={Users}
-          status={sensorData.peoplePresent === null ? "offline" : sensorData.peoplePresent ? "online" : "offline"}
+          status={
+            sensorData.peoplePresent === null
+              ? "offline"
+              : sensorData.peoplePresent
+              ? "online"
+              : "offline"
+          }
           isBoolean
         />
         <SensorCard
           title="Window Status"
           value={sensorData.windowOpen ?? false}
           icon={DoorOpen}
-          status={sensorData.windowOpen === null ? "offline" : sensorData.windowOpen ? "warning" : "online"}
+          status={
+            sensorData.windowOpen === null
+              ? "offline"
+              : sensorData.windowOpen
+              ? "warning"
+              : "online"
+          }
           isBoolean
         />
       </div>
@@ -213,12 +292,20 @@ export function Dashboard() {
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Connection</span>
-              <span className={`font-medium ${
-                connectionStatus === "connected" ? "text-green-500" : 
-                connectionStatus === "error" ? "text-red-500" : "text-yellow-500"
-              }`}>
-                {connectionStatus === "connected" ? "Connected" : 
-                 connectionStatus === "error" ? "Disconnected" : "Connecting..."}
+              <span
+                className={`font-medium ${
+                  connectionStatus === "connected"
+                    ? "text-green-500"
+                    : connectionStatus === "error"
+                    ? "text-red-500"
+                    : "text-yellow-500"
+                }`}
+              >
+                {connectionStatus === "connected"
+                  ? "Connected"
+                  : connectionStatus === "error"
+                  ? "Disconnected"
+                  : "Connecting..."}
               </span>
             </div>
             <div className="flex justify-between">
@@ -227,9 +314,7 @@ export function Dashboard() {
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Last Update</span>
-              <span className="font-medium">
-                {sensorData.timestamp.toLocaleTimeString()}
-              </span>
+              <span className="font-medium">{sensorData.timestamp.toLocaleTimeString()}</span>
             </div>
           </div>
         </div>
@@ -240,22 +325,30 @@ export function Dashboard() {
             <div className="flex justify-between">
               <span className="text-muted-foreground">Temperature</span>
               <span className="font-medium">
-                {sensorData.temperature !== null ? `${sensorData.temperature.toFixed(1)}°C` : "--"}
+                {sensorData.temperature !== null
+                  ? `${sensorData.temperature.toFixed(1)}°C`
+                  : "--"}
               </span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Air Quality</span>
               <span className="font-medium">
-                {sensorData.airQualityPercent !== null 
-                  ? sensorData.airQualityPercent > 0.85 ? "Excellent" : sensorData.airQualityPercent > 0.6 ? "Good" : "Fair"
+                {sensorData.airQualityPercent !== null
+                  ? sensorData.airQualityPercent > 0.85
+                    ? "Excellent"
+                    : sensorData.airQualityPercent > 0.6
+                    ? "Good"
+                    : "Fair"
                   : "--"}
               </span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Room Occupancy</span>
               <span className="font-medium">
-                {sensorData.peoplePresent !== null 
-                  ? sensorData.peoplePresent ? "Motion Detected" : "Empty"
+                {sensorData.peoplePresent !== null
+                  ? sensorData.peoplePresent
+                    ? "Motion Detected"
+                    : "Empty"
                   : "--"}
               </span>
             </div>
