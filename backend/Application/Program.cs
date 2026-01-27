@@ -112,6 +112,24 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
+// Run EF Core migrations on startup to bring the database to the latest migration.
+using (var scope = app.Services.CreateScope())
+{
+    var services = scope.ServiceProvider;
+    var logger = services.GetRequiredService<ILogger<Program>>();
+    try
+    {
+        var db = services.GetRequiredService<ApplicationDbContext>();
+        db.Database.Migrate();
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "An error occurred while applying database migrations.");
+        // Rethrow so the app doesn't start in a bad state. If you prefer to continue without migration, remove the throw.
+        throw;
+    }
+}
+
 // Connect to MQTT broker
 var mqttRepository = app.Services.GetRequiredService<IMqttRepository>();
 await mqttRepository.ConnectAsync();
