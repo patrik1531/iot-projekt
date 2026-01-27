@@ -1,0 +1,49 @@
+services:
+  # PostgreSQL databáza
+  postgres:
+    image: postgres:16
+    container_name: iot-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: matotvrdon
+      POSTGRES_PASSWORD: matotvrdon
+      POSTGRES_DB: matotvrdon
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    expose:
+      - "5432"
+
+  # .NET Backend API
+  backend:
+    build:
+      context: ./backend/Application
+      dockerfile: Dockerfile
+    container_name: iot-backend
+    restart: unless-stopped
+    expose:
+      - "8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=matotvrdon;Username=matotvrdon;Password=matotvrdon
+      - Telegram__Token=8228149249:AAEZTqTirXDj07Wf-weo5TzURoLKSN22TIw
+      - Notifier__Password=dgRk9cQ8sU4fCO
+      - Gemini__ApiKey=AIzaSyBPr6ba5J-E19l1IY6nl2LqcqRtbxlQDTs
+      - MqttSettings__Broker=147.232.205.176
+      - MqttSettings__Port=8883
+    depends_on:
+      - postgres
+
+  # Vite Frontend (nginx)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: iot-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
