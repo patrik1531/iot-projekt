@@ -27,7 +27,7 @@ services:
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=matotvrdon;Username=matotvrdon;Password=matotvrdon
       - Telegram__Token=8228149249:AAEZTqTirXDj07Wf-weo5TzURoLKSN22TIw
       - Notifier__Password=dgRk9cQ8sU4fCO
-      - Gemini__ApiKey=AIzaSyBPr6ba5J-E19l1IY6nl2LqcqRtbxlQDTs
+      - Gemini__ApiKey="KEY"
       - MqttSettings__Broker=147.232.205.176
       - MqttSettings__Port=8883
     depends_on:
